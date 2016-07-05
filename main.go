@@ -1,8 +1,11 @@
 package main
 
 import (
+	"log"
 	"net/http"
+	"os"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	flags "github.com/jessevdk/go-flags"
@@ -15,6 +18,7 @@ type CommandArgs struct {
 	MongoUrl        string `long:"mongo-url" description:"MongoDB Remote Url" default:"http://localhost:27017"`
 	MongoDatabase   string `long:"mongo-database" description:"MongoDB Database" required:"true"`
 	MongoCollection string `long:"mongo-collection" description:"MongoDB Collection" required:"true"`
+	Verbose         bool   `short:"v" long:"verbose" description:"Show MongoDB Logs"`
 }
 
 type ServerContext struct {
@@ -30,9 +34,16 @@ func (context *ServerContext) ParseCommandArgs() (remains []string, err error) {
 }
 
 func (context *ServerContext) ConnectMongoDB() (err error) {
-	context.MongoSession, err = mgo.Dial(context.Args.MongoUrl)
+	if context.Args.Verbose {
+		mgo.SetLogger(log.New(os.Stdout, "MONGODB: ", log.LstdFlags|log.Lshortfile))
+		mgo.SetDebug(true)
+	}
+	context.MongoSession, err = mgo.DialWithTimeout(context.Args.MongoUrl, 2*time.Second)
 	if err == nil {
 		context.MongoSession.SetMode(mgo.Eventual, true)
+		context.MongoSession.SetPoolLimit(65536)
+		context.MongoSession.EnsureSafe(&mgo.Safe{W: 1})
+		context.MongoSession.SetSocketTimeout(10 * time.Second)
 		context.MongoDatabase = context.MongoSession.DB(context.Args.MongoDatabase)
 		context.MongoCollection = context.MongoDatabase.C(context.Args.MongoCollection)
 	}
