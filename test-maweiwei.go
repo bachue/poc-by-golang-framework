@@ -6,34 +6,36 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
-	"strings"
+	"os"
+	"strconv"
 	"time"
 
+	"github.com/tuvistavie/securerandom"
 	mgo "gopkg.in/mgo.v2"
 	bson "gopkg.in/mgo.v2/bson"
 )
-
-const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
 
 func init() {
 	rand.Seed(time.Now().UTC().UnixNano())
 }
 
 func RandomString(strlen int) string {
-	result := make([]byte, strlen)
-	for i := 0; i < strlen; i++ {
-		result[i] = chars[rand.Intn(len(chars))]
+	result, err := securerandom.Hex(strlen >> 1)
+	if err != nil {
+		panic(err)
 	}
-	return string(result)
+	return result
 }
 
 type Doc map[string]string
 
 type Server struct {
 	debug       bool
+	verbose     bool
 	keyCount    int
 	valueLength int
 	coll        *mgo.Collection
+	samples     []map[string]string
 }
 
 var doc = Doc{}
@@ -45,6 +47,8 @@ func (s *Server) Root(w http.ResponseWriter, r *http.Request) {
 		s.find(w, r)
 	case "POST":
 		s.insert(w, r)
+	case "PUT":
+		s.createSamples(w, r)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
@@ -52,16 +56,20 @@ func (s *Server) Root(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) find(w http.ResponseWriter, r *http.Request) {
-	query := bson.M{}
-	params := r.URL.Query()
-	for key, values := range params {
-		if strings.HasPrefix(key, "key") && len(values) > 0 {
-			query[key] = values[0]
-		}
+	if len(s.samples) == 0 {
+		log.Println("Call PUT / First")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
 	}
-	n, err := s.coll.Find(query).Count()
+	sample := s.samples[rand.Intn(len(s.samples))]
+
+	if s.verbose {
+		log.Println("Query:", sample)
+	}
+
+	n, err := s.coll.Find(sample).Count()
 	if err != nil {
-		log.Println("find from db failed", err)
+		log.Println("Find from db failed", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -75,9 +83,48 @@ func (s *Server) find(w http.ResponseWriter, r *http.Request) {
 func (s *Server) insert(w http.ResponseWriter, r *http.Request) {
 	err := s.coll.Insert(doc)
 	if err != nil {
-		log.Println("insert to db failed", err)
+		log.Println("Insert to db failed", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (s *Server) createSamples(w http.ResponseWriter, r *http.Request) {
+	params := r.URL.Query()
+
+	for i := 0; i < 20; i++ {
+		err := s.coll.EnsureIndexKey("key" + strconv.Itoa(i))
+		if err != nil {
+			log.Println("Failed to ensure index", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if params["count"] != nil && len(params["count"]) > 0 {
+		count, err := strconv.Atoi(params["count"][0])
+		if err != nil {
+			log.Println("Failed to create samples", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		aggregation := []bson.M{bson.M{"$sample": bson.M{"size": count}}}
+
+		var results []map[string]string
+		err = s.coll.Pipe(aggregation).All(&results)
+		if err != nil {
+			log.Println("Failed to create samples", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		s.samples = make([]map[string]string, count)
+		for i, result := range results {
+			sample := make(map[string]string)
+			key := "key" + strconv.Itoa(rand.Intn(20))
+			sample[key] = result[key]
+			s.samples[i] = sample
+		}
 	}
 	w.WriteHeader(http.StatusCreated)
 }
@@ -89,9 +136,17 @@ func main() {
 	listenAddr := flag.String("listen", ":9876", "server listen addr")
 	keyCount := flag.Int("count", 20, "key count")
 	valueLength := flag.Int("value", 128, "value length")
-	debug := flag.Bool("debug", true, "debug mode")
+	verbose := flag.Bool("verbose", false, "verbose mode")
+	debug := flag.Bool("debug", false, "debug mode")
 	flag.Parse()
 	log.Println("server running at", *listenAddr)
+
+	if *verbose {
+		logger := log.New(os.Stdout, "INFO: ", log.LstdFlags)
+		mgo.SetLogger(logger)
+		mgo.SetDebug(*debug)
+	}
+
 	s, err := mgo.Dial(*mgoAddr)
 	if err != nil {
 		log.Fatal(err)
@@ -104,6 +159,7 @@ func main() {
 		doc[fmt.Sprintf("key%v", i)] = RandomString(*valueLength)
 	}
 	server := &Server{
+		verbose:     *verbose,
 		debug:       *debug,
 		keyCount:    *keyCount,
 		valueLength: *valueLength,
