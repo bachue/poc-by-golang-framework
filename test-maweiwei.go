@@ -15,10 +15,6 @@ import (
 	bson "gopkg.in/mgo.v2/bson"
 )
 
-func init() {
-	rand.Seed(time.Now().UTC().UnixNano())
-}
-
 func RandomString(strlen int) string {
 	result, err := securerandom.Hex(strlen >> 1)
 	if err != nil {
@@ -35,10 +31,8 @@ type Server struct {
 	keyCount    int
 	valueLength int
 	coll        *mgo.Collection
-	samples     []map[string]string
+	samples     []Doc
 }
-
-var doc = Doc{}
 
 func (s *Server) Root(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
@@ -81,6 +75,10 @@ func (s *Server) find(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) insert(w http.ResponseWriter, r *http.Request) {
+	doc := Doc{}
+	for i := 0; i < s.keyCount; i++ {
+		doc[fmt.Sprintf("key%v", i)] = RandomString(s.valueLength)
+	}
 	err := s.coll.Insert(doc)
 	if err != nil {
 		log.Println("Insert to db failed", err)
@@ -111,18 +109,20 @@ func (s *Server) createSamples(w http.ResponseWriter, r *http.Request) {
 		}
 		aggregation := []bson.M{bson.M{"$sample": bson.M{"size": count}}}
 
-		var results []map[string]string
+		var results []Doc
 		err = s.coll.Pipe(aggregation).All(&results)
 		if err != nil {
 			log.Println("Failed to create samples", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		s.samples = make([]map[string]string, count)
+		s.samples = make([]Doc, count)
 		for i, result := range results {
-			sample := make(map[string]string)
-			key := "key" + strconv.Itoa(rand.Intn(20))
-			sample[key] = result[key]
+			sample := make(Doc)
+			for j := 0; j < rand.Intn(5); j++ {
+				key := "key" + strconv.Itoa(rand.Intn(20))
+				sample[key] = result[key]
+			}
 			s.samples[i] = sample
 		}
 	}
@@ -155,9 +155,6 @@ func main() {
 	s.SetMode(mgo.Nearest, true)
 	s.SetPoolLimit(1048560)
 
-	for i := 0; i < *keyCount; i++ {
-		doc[fmt.Sprintf("key%v", i)] = RandomString(*valueLength)
-	}
 	server := &Server{
 		verbose:     *verbose,
 		debug:       *debug,
