@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -137,13 +138,13 @@ func (s *Server) getCollection() *mgo.Collection {
 }
 
 func main() {
-	mgoAddr := flag.String("addr", "127.0.0.1", "mongodb addr")
+	mgoAddrs := flag.String("addrs", "127.0.0.1", "mongodb addrs")
 	db := flag.String("db", "poc-go", "db")
 	coll := flag.String("coll", "coll", "collection")
 	listenAddr := flag.String("listen", ":9876", "server listen addr")
 	keyCount := flag.Int("count", 20, "key count")
 	valueLength := flag.Int("value", 128, "value length")
-	sessionCount := flag.Int("session-count", 20, "Mongodb Session Count")
+	sessionCount := flag.Int("session-count", 10, "Mongodb Session Count for each addr")
 	verbose := flag.Bool("verbose", false, "verbose mode")
 	debug := flag.Bool("debug", false, "debug mode")
 	flag.Parse()
@@ -155,30 +156,25 @@ func main() {
 		mgo.SetDebug(*debug)
 	}
 
-	s, err := mgo.Dial(*mgoAddr)
-	if err != nil {
-		log.Fatal(err)
-	}
-	s.SetMode(mgo.Nearest, true)
-	s.SetPoolLimit(1048560)
-
-	sessions := make([]*mgo.Session, *sessionCount)
-	sessions[0] = s
-	for i := 1; i < *sessionCount; i++ {
-		sessions[i] = s.Copy()
-	}
-
+	addrs := strings.Split(*mgoAddrs, ",")
 	server := &Server{
 		verbose:     *verbose,
 		debug:       *debug,
 		keyCount:    *keyCount,
 		valueLength: *valueLength,
-		colls:       make([]*mgo.Collection, *sessionCount),
+		colls:       make([]*mgo.Collection, (*sessionCount)*len(addrs)),
 	}
-	for i, session := range sessions {
-		defer session.Close()
-		server.colls[i] = session.DB(*db).C(*coll)
+
+	for i := 0; i < (*sessionCount)*len(addrs); i++ {
+		s, err := mgo.Dial(addrs[i%len(addrs)])
+		if err != nil {
+			log.Fatal(err)
+		}
+		s.SetPoolLimit(1048560)
+		defer s.Close()
+		server.colls[i] = s.DB(*db).C(*coll)
 	}
+
 	http.HandleFunc("/", server.Root)
 	log.Fatal(http.ListenAndServe(*listenAddr, nil))
 }
