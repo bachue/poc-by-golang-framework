@@ -22,6 +22,7 @@ var (
 	amount          = flag.Uint64("a", 0, "number of data")
 	total           = uint64(0)
 	last            = time.Now()
+	collsList       [][]*mgo.Collection
 )
 
 func generateSecureRandomHex(n int) string {
@@ -32,22 +33,14 @@ func generateSecureRandomHex(n int) string {
 	return hex
 }
 
-func run(done chan<- bool) {
-	session, err := mgo.Dial(*host)
-	if err != nil {
-		log.Fatal(err)
-	}
-	colls := make([]*mgo.Collection, *dbCount)
-	for i := 0; i < *dbCount; i++ {
-		colls[i] = session.DB(*db).C(*coll)
-	}
+func write(colls []*mgo.Collection, done chan<- bool) {
 	var t uint64
 	for {
 		if t = atomic.AddUint64(&total, 1); *amount > 0 && t > *amount {
 			break
 		}
 
-		err = colls[t%uint64(*dbCount)].Insert(bson.M{
+		err := colls[t%uint64(*dbCount)].Insert(bson.M{
 			"_id":   uuid.New(),
 			"key0":  generateSecureRandomHex(128),
 			"key1":  generateSecureRandomHex(128),
@@ -86,15 +79,27 @@ func main() {
 	flag.Parse()
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
+	collsList := make([][]*mgo.Collection, *NumberGoroutine)
+	for i := 0; i < *NumberGoroutine; i++ {
+		session, err := mgo.Dial(*host)
+		if err != nil {
+			log.Fatal(err)
+		}
+		colls := make([]*mgo.Collection, *dbCount)
+		for j := 0; j < *dbCount; j++ {
+			colls[j] = session.DB(*db).C(*coll)
+		}
+		collsList[i] = colls
+	}
+
 	done := make([]chan bool, *NumberGoroutine)
 	for i := 0; i < *NumberGoroutine; i++ {
 		done[i] = make(chan bool, 1)
 	}
 
-	for i := 0; i < *NumberGoroutine-1; i++ {
-		go run(done[i])
+	for i := 0; i < *NumberGoroutine; i++ {
+		go write(collsList[i], done[i])
 	}
-	run(done[*NumberGoroutine-1])
 
 	for i := 0; i < *NumberGoroutine; i++ {
 		<-done[i]
