@@ -19,7 +19,7 @@ var (
 	db              = flag.String("d", "test", "db")
 	coll            = flag.String("c", "test", "coll")
 	dbCount         = flag.Int("dbs", 1, "db count")
-	amount          = flag.Uint64("a", 1, "number of data")
+	amount          = flag.Uint64("a", 0, "number of data")
 	total           = uint64(0)
 	last            = time.Now()
 )
@@ -43,7 +43,7 @@ func run(done chan<- bool) {
 	}
 	var t uint64
 	for {
-		if t = atomic.AddUint64(&total, 1); t > *amount {
+		if t = atomic.AddUint64(&total, 1); *amount > 0 && t > *amount {
 			break
 		}
 
