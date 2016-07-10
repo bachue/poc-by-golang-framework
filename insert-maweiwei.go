@@ -3,12 +3,12 @@ package main
 import (
 	"flag"
 	"log"
-	"math/rand"
 	"runtime"
 	"sync/atomic"
 	"time"
 
 	"github.com/pborman/uuid"
+	"github.com/tuvistavie/securerandom"
 	mgo "gopkg.in/mgo.v2"
 	bson "gopkg.in/mgo.v2/bson"
 )
@@ -23,6 +23,14 @@ var (
 	total           = uint64(0)
 	last            = time.Now()
 )
+
+func generateSecureRandomHex(n int) string {
+	hex, err := securerandom.Hex(n >> 1)
+	if err != nil {
+		panic(err)
+	}
+	return hex
+}
 
 func run(done chan<- bool) {
 	session, err := mgo.Dial(*host)
@@ -40,12 +48,27 @@ func run(done chan<- bool) {
 		}
 
 		err = colls[t%uint64(*dbCount)].Insert(bson.M{
-			"_id":      "7x3m1s:" + uuid.New(),
-			"hash":     uuid.New(),
-			"mimeType": "image/jpeg",
-			"fsize":    rand.Int63(),
-			"putTime":  rand.Int63(),
-			"fh":       bson.Binary{0x00, []byte(uuid.New())},
+			"_id":   uuid.New(),
+			"key0":  generateSecureRandomHex(128),
+			"key1":  generateSecureRandomHex(128),
+			"key2":  generateSecureRandomHex(128),
+			"key3":  generateSecureRandomHex(128),
+			"key4":  generateSecureRandomHex(128),
+			"key5":  generateSecureRandomHex(128),
+			"key6":  generateSecureRandomHex(128),
+			"key7":  generateSecureRandomHex(128),
+			"key8":  generateSecureRandomHex(128),
+			"key9":  generateSecureRandomHex(128),
+			"key10": generateSecureRandomHex(128),
+			"key11": generateSecureRandomHex(128),
+			"key12": generateSecureRandomHex(128),
+			"key13": generateSecureRandomHex(128),
+			"key14": generateSecureRandomHex(128),
+			"key15": generateSecureRandomHex(128),
+			"key16": generateSecureRandomHex(128),
+			"key17": generateSecureRandomHex(128),
+			"key18": generateSecureRandomHex(128),
+			"key19": generateSecureRandomHex(128),
 		})
 		if err != nil {
 			log.Println(err)
