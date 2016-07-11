@@ -24,6 +24,7 @@ var (
 	writeCount      = flag.Uint64("qw", 0, "number of write")
 	queryCount      = flag.Uint64("qr", 0, "number of query")
 	sampleCount     = flag.Uint64("qs", 2000, "number of samples")
+	frequency       = flag.Uint64("frequency", 100000, "benchmark frequency")
 	totalWrite      = uint64(0)
 	totalQuery      = uint64(0)
 	last            time.Time
@@ -74,8 +75,8 @@ func write(colls []*mgo.Collection, done chan<- bool) {
 			log.Println(err)
 			continue
 		}
-		if t%100000 == 0 {
-			log.Println("INSERT", t, 100000/time.Since(last).Seconds())
+		if t%(*frequency) == 0 {
+			log.Println("INSERT", t, float64(*frequency)/time.Since(last).Seconds())
 			last = time.Now()
 		}
 	}
@@ -98,8 +99,8 @@ func query(colls []*mgo.Collection, done chan<- bool) {
 		if n != 1 {
 			log.Printf("Expected the query will got 1 record, but got %d\n", n)
 		}
-		if t%100000 == 0 {
-			log.Println("QUERY", t, 100000/time.Since(last).Seconds())
+		if t%(*frequency) == 0 {
+			log.Println("QUERY", t, float64(*frequency)/time.Since(last).Seconds())
 			last = time.Now()
 		}
 	}
@@ -167,6 +168,9 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		session.SetSyncTimeout(10 * time.Minute)
+		session.SetSocketTimeout(10 * time.Minute)
+		defer session.Close()
 		colls := make([]*mgo.Collection, *dbCount)
 		for j := 0; j < *dbCount; j++ {
 			colls[j] = session.DB(*db).C(*coll)
