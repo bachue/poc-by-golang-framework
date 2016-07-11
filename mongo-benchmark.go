@@ -4,6 +4,7 @@ import (
 	"flag"
 	"log"
 	"math/rand"
+	"os"
 	"runtime"
 	"strconv"
 	"sync/atomic"
@@ -25,6 +26,8 @@ var (
 	queryCount      = flag.Uint64("qr", 0, "number of query")
 	sampleCount     = flag.Uint64("qs", 2000, "number of samples")
 	frequency       = flag.Uint64("frequency", 100000, "benchmark frequency")
+	verbose         = flag.Bool("verbose", false, "verbose")
+	debug           = flag.Bool("debug", false, "verbose")
 	totalWrite      = uint64(0)
 	totalQuery      = uint64(0)
 	last            time.Time
@@ -161,6 +164,12 @@ func main() {
 
 	flag.Parse()
 	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	if *verbose {
+		logger := log.New(os.Stderr, "INFO", log.LstdFlags)
+		mgo.SetLogger(logger)
+		mgo.SetDebug(*debug)
+	}
 
 	collsList := make([][]*mgo.Collection, *NumberGoroutine)
 	for i := 0; i < *NumberGoroutine; i++ {
