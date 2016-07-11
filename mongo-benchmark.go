@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"math/rand"
 	"runtime"
@@ -27,7 +26,7 @@ var (
 	sampleCount     = flag.Uint64("qs", 2000, "number of samples")
 	totalWrite      = uint64(0)
 	totalQuery      = uint64(0)
-	last            = time.Now()
+	last            time.Time
 	collsList       [][]*mgo.Collection
 	samples         []map[string]string
 )
@@ -42,8 +41,9 @@ func generateSecureRandomHex(n int) string {
 
 func write(colls []*mgo.Collection, done chan<- bool) {
 	var t uint64
+	count := *writeCount
 	for {
-		if t = atomic.AddUint64(&totalWrite, 1); *writeCount > 0 && t > *writeCount {
+		if t = atomic.AddUint64(&totalWrite, 1); count > 0 && t > count {
 			break
 		}
 
@@ -75,7 +75,31 @@ func write(colls []*mgo.Collection, done chan<- bool) {
 			continue
 		}
 		if t%100000 == 0 {
-			log.Println(t, 100000/time.Since(last).Seconds())
+			log.Println("INSERT", t, 100000/time.Since(last).Seconds())
+			last = time.Now()
+		}
+	}
+	done <- true
+}
+
+func query(colls []*mgo.Collection, done chan<- bool) {
+	var t uint64
+	count := *queryCount
+	for {
+		if t = atomic.AddUint64(&totalQuery, 1); count > 0 && t > count {
+			break
+		}
+
+		n, err := colls[t%uint64(*dbCount)].Find(samples[rand.Intn(len(samples))]).Count()
+		if err != nil {
+			log.Println(err)
+			continue
+		}
+		if n != 1 {
+			log.Printf("Expected the query will got 1 record, but got %d\n", n)
+		}
+		if t%100000 == 0 {
+			log.Println("QUERY", t, 100000/time.Since(last).Seconds())
 			last = time.Now()
 		}
 	}
@@ -108,7 +132,6 @@ func readSamples(coll *mgo.Collection) {
 				key = "key" + strconv.Itoa(rand.Intn(20))
 				sample[key] = result[key]
 			}
-			fmt.Printf("sample: %v\n", sample)
 			samples = append(samples, sample)
 		}
 
@@ -120,13 +143,27 @@ func readSamples(coll *mgo.Collection) {
 	}
 }
 
+func ensureIndexes(coll *mgo.Collection) {
+	for i := 0; i < 20; i++ {
+		err := coll.EnsureIndexKey("key" + strconv.Itoa(i))
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
 func main() {
+	var (
+		session *mgo.Session
+		err     error
+	)
+
 	flag.Parse()
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	collsList := make([][]*mgo.Collection, *NumberGoroutine)
 	for i := 0; i < *NumberGoroutine; i++ {
-		session, err := mgo.Dial(*host)
+		session, err = mgo.DialWithTimeout(*host, 1*time.Minute)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -142,11 +179,11 @@ func main() {
 		done[i] = make(chan bool, 1)
 	}
 
+	last = time.Now()
 	if *writeCount > 0 {
 		for i := 0; i < *NumberGoroutine; i++ {
 			go write(collsList[i], done[i])
 		}
-
 		for i := 0; i < *NumberGoroutine; i++ {
 			<-done[i]
 		}
@@ -155,5 +192,18 @@ func main() {
 	if *queryCount > 0 {
 		samples = make([]map[string]string, 0, *sampleCount)
 		readSamples(collsList[0][0])
+		ensureIndexes(collsList[0][0])
+
+		last = time.Now()
+		for i := 0; i < *NumberGoroutine; i++ {
+			go query(collsList[i], done[i])
+		}
+		for i := 0; i < *NumberGoroutine; i++ {
+			<-done[i]
+		}
+	}
+
+	for _, channel := range done {
+		close(channel)
 	}
 }
