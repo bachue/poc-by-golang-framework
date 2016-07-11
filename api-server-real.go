@@ -1,0 +1,164 @@
+package main
+
+import (
+	"encoding/json"
+	"flag"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+	"sync/atomic"
+	"time"
+
+	"github.com/tuvistavie/securerandom"
+	mgo "gopkg.in/mgo.v2"
+)
+
+func RandomString(strlen int) string {
+	result, err := securerandom.Hex(strlen >> 1)
+	if err != nil {
+		panic(err)
+	}
+	return result
+}
+
+type Doc map[string]string
+
+type Server struct {
+	debug       bool
+	verbose     bool
+	idx         uint32
+	keyCount    int
+	valueLength int
+	colls       []*mgo.Collection
+	samples     []Doc
+}
+
+func (s *Server) Root(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	switch r.Method {
+	case "GET", "HEAD":
+		s.find(w, r)
+	case "POST":
+		s.insert(w, r)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+	log.Println(r.Method, r.ContentLength, r.URL.Path, time.Since(start).Seconds()*1000, "ms")
+}
+
+func (s *Server) find(w http.ResponseWriter, r *http.Request) {
+	if len(r.Header["Content-Type"]) <= 0 || !strings.Contains(r.Header["Content-Type"][0], "json") {
+		log.Printf("Content-Type must be JSON but %d\n", r.Header["Content-Type"])
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Println("Read Body Failed", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	var query map[string]string
+	err = json.Unmarshal(body, &query)
+	if err != nil {
+		log.Println("Parse Body Failed", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	n, err := s.getCollection().Find(query).Count()
+	if err != nil {
+		log.Println("Find from db failed", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	if n > 0 {
+		w.WriteHeader(http.StatusOK)
+	} else {
+		w.WriteHeader(http.StatusNotFound)
+	}
+}
+
+func (s *Server) insert(w http.ResponseWriter, r *http.Request) {
+	if len(r.Header["Content-Type"]) <= 0 || !strings.Contains(r.Header["Content-Type"][0], "json") {
+		log.Printf("Content-Type must be JSON but %d\n", r.Header["Content-Type"])
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Println("Read Body Failed", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	var doc map[string]string
+	err = json.Unmarshal(body, &doc)
+	if err != nil {
+		log.Println("Parse Body Failed", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	doc["_id"], err = securerandom.Uuid()
+	if err != nil {
+		log.Println("Generate UUID Error", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	err = s.getCollection().Insert(doc)
+	if err != nil {
+		log.Println("Insert to db failed", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (s *Server) getCollection() *mgo.Collection {
+	id := atomic.AddUint32(&s.idx, 1) % uint32(len(s.colls))
+	return s.colls[id]
+}
+
+func main() {
+	mgoAddrs := flag.String("addrs", "127.0.0.1", "mongodb addrs")
+	db := flag.String("db", "poc-go", "db")
+	coll := flag.String("coll", "coll", "collection")
+	listenAddr := flag.String("listen", ":9876", "server listen addr")
+	sessionCount := flag.Int("session-count", 10, "Mongodb Session Count for each addr")
+	verbose := flag.Bool("verbose", false, "verbose mode")
+	debug := flag.Bool("debug", false, "debug mode")
+	flag.Parse()
+	log.Println("server running at", *listenAddr)
+
+	if *verbose {
+		logger := log.New(os.Stdout, "INFO: ", log.LstdFlags)
+		mgo.SetLogger(logger)
+		mgo.SetDebug(*debug)
+	}
+
+	addrs := strings.Split(*mgoAddrs, ",")
+	server := &Server{
+		verbose: *verbose,
+		debug:   *debug,
+		colls:   make([]*mgo.Collection, (*sessionCount)*len(addrs)),
+	}
+
+	for i := 0; i < (*sessionCount)*len(addrs); i++ {
+		s, err := mgo.Dial(addrs[i%len(addrs)])
+		if err != nil {
+			log.Fatal(err)
+		}
+		s.SetPoolLimit(1048560)
+		defer s.Close()
+		server.colls[i] = s.DB(*db).C(*coll)
+	}
+
+	http.HandleFunc("/", server.Root)
+	log.Fatal(http.ListenAndServe(*listenAddr, nil))
+}
