@@ -26,19 +26,17 @@ func RandomString(strlen int) string {
 type Doc map[string]string
 
 type Server struct {
-	debug       bool
-	verbose     bool
-	idx         uint32
-	keyCount    int
-	valueLength int
-	colls       []*mgo.Collection
-	samples     []Doc
+	debug   bool
+	verbose bool
+	idx     uint32
+	colls   []*mgo.Collection
+	samples []Doc
 }
 
 func (s *Server) Root(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	switch r.Method {
-	case "GET", "HEAD":
+	case "GET":
 		s.find(w, r)
 	case "POST":
 		s.insert(w, r)

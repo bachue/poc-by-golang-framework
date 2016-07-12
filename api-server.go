@@ -1,6 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"crypto/md5"
+	"encoding/binary"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
@@ -12,29 +16,61 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/tuvistavie/securerandom"
 	mgo "gopkg.in/mgo.v2"
 	bson "gopkg.in/mgo.v2/bson"
 )
 
-func RandomString(strlen int) string {
-	result, err := securerandom.Hex(strlen >> 1)
+func generateRandomMd5() []byte {
+	buf := new(bytes.Buffer)
+	err := binary.Write(buf, binary.LittleEndian, time.Now().UnixNano())
 	if err != nil {
 		panic(err)
 	}
-	return result
+	array := md5.Sum(buf.Bytes())
+	return array[:]
+}
+
+func generateRandomHexes() [20]string {
+	var bytes1 []byte = generateRandomMd5()
+	var bytes2 []byte = generateRandomMd5()
+	var bytes3 []byte = generateRandomMd5()
+	var bytes4 []byte = generateRandomMd5()
+	var hex1 string = hex.EncodeToString(bytes1)
+	var hex2 string = hex.EncodeToString(bytes2)
+	var hex3 string = hex.EncodeToString(bytes3)
+	var hex4 string = hex.EncodeToString(bytes4)
+	return [20]string{
+		strings.Join([]string{hex1, hex2, hex3, hex4}, ""),
+		strings.Join([]string{hex1, hex2, hex4, hex3}, ""),
+		strings.Join([]string{hex1, hex3, hex2, hex4}, ""),
+		strings.Join([]string{hex1, hex3, hex4, hex2}, ""),
+		strings.Join([]string{hex1, hex4, hex2, hex3}, ""),
+		strings.Join([]string{hex1, hex4, hex3, hex2}, ""),
+		strings.Join([]string{hex2, hex1, hex3, hex4}, ""),
+		strings.Join([]string{hex2, hex1, hex4, hex3}, ""),
+		strings.Join([]string{hex2, hex3, hex1, hex4}, ""),
+		strings.Join([]string{hex2, hex3, hex4, hex1}, ""),
+		strings.Join([]string{hex2, hex4, hex3, hex2}, ""),
+		strings.Join([]string{hex2, hex4, hex2, hex3}, ""),
+		strings.Join([]string{hex3, hex1, hex2, hex4}, ""),
+		strings.Join([]string{hex3, hex1, hex4, hex2}, ""),
+		strings.Join([]string{hex3, hex2, hex1, hex4}, ""),
+		strings.Join([]string{hex3, hex2, hex4, hex1}, ""),
+		strings.Join([]string{hex3, hex4, hex1, hex2}, ""),
+		strings.Join([]string{hex3, hex4, hex2, hex1}, ""),
+		strings.Join([]string{hex4, hex1, hex2, hex3}, ""),
+		strings.Join([]string{hex4, hex1, hex3, hex2}, ""),
+	}
 }
 
 type Doc map[string]string
 
 type Server struct {
-	debug       bool
-	verbose     bool
-	idx         uint32
-	keyCount    int
-	valueLength int
-	colls       []*mgo.Collection
-	samples     []Doc
+	debug   bool
+	verbose bool
+	idx     uint32
+	colls   []*mgo.Collection
+	samples []Doc
 }
 
 func (s *Server) Root(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +85,9 @@ func (s *Server) Root(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
-	log.Println(r.Method, r.ContentLength, r.URL.Path, time.Since(start).Seconds()*1000, "ms")
+	if s.verbose {
+		log.Println(r.Method, r.ContentLength, r.URL.Path, time.Since(start).Seconds()*1000, "ms")
+	}
 }
 
 func (s *Server) find(w http.ResponseWriter, r *http.Request) {
@@ -79,8 +117,9 @@ func (s *Server) find(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) insert(w http.ResponseWriter, r *http.Request) {
 	doc := Doc{}
-	for i := 0; i < s.keyCount; i++ {
-		doc[fmt.Sprintf("key%v", i)] = RandomString(s.valueLength)
+	hexes := generateRandomHexes()
+	for i := 0; i < 20; i++ {
+		doc[fmt.Sprintf("key%v", i)] = hexes[i]
 	}
 	err := s.getCollection().Insert(doc)
 	if err != nil {
@@ -142,8 +181,6 @@ func main() {
 	db := flag.String("db", "poc-go", "db")
 	coll := flag.String("coll", "coll", "collection")
 	listenAddr := flag.String("listen", ":9876", "server listen addr")
-	keyCount := flag.Int("count", 20, "key count")
-	valueLength := flag.Int("value", 128, "value length")
 	sessionCount := flag.Int("session-count", 10, "Mongodb Session Count for each addr")
 	verbose := flag.Bool("verbose", false, "verbose mode")
 	debug := flag.Bool("debug", false, "debug mode")
@@ -158,11 +195,9 @@ func main() {
 
 	addrs := strings.Split(*mgoAddrs, ",")
 	server := &Server{
-		verbose:     *verbose,
-		debug:       *debug,
-		keyCount:    *keyCount,
-		valueLength: *valueLength,
-		colls:       make([]*mgo.Collection, (*sessionCount)*len(addrs)),
+		verbose: *verbose,
+		debug:   *debug,
+		colls:   make([]*mgo.Collection, (*sessionCount)*len(addrs)),
 	}
 
 	for i := 0; i < (*sessionCount)*len(addrs); i++ {
