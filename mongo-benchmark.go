@@ -1,17 +1,21 @@
 package main
 
 import (
+	"bytes"
+	"crypto/md5"
+	"encoding/binary"
+	"encoding/hex"
 	"flag"
 	"log"
 	"math/rand"
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/pborman/uuid"
-	"github.com/tuvistavie/securerandom"
 	mgo "gopkg.in/mgo.v2"
 	bson "gopkg.in/mgo.v2/bson"
 )
@@ -35,12 +39,47 @@ var (
 	samples         []map[string]string
 )
 
-func generateSecureRandomHex(n int) string {
-	hex, err := securerandom.Hex(n >> 1)
+func generateRandomMd5() []byte {
+	buf := new(bytes.Buffer)
+	err := binary.Write(buf, binary.LittleEndian, time.Now().UnixNano())
 	if err != nil {
 		panic(err)
 	}
-	return hex
+	array := md5.Sum(buf.Bytes())
+	return array[:]
+}
+
+func generateRandomHexes() [20]string {
+	var bytes1 []byte = generateRandomMd5()
+	var bytes2 []byte = generateRandomMd5()
+	var bytes3 []byte = generateRandomMd5()
+	var bytes4 []byte = generateRandomMd5()
+	var hex1 string = hex.EncodeToString(bytes1)
+	var hex2 string = hex.EncodeToString(bytes2)
+	var hex3 string = hex.EncodeToString(bytes3)
+	var hex4 string = hex.EncodeToString(bytes4)
+	return [20]string{
+		strings.Join([]string{hex1, hex2, hex3, hex4}, ""),
+		strings.Join([]string{hex1, hex2, hex4, hex3}, ""),
+		strings.Join([]string{hex1, hex3, hex2, hex4}, ""),
+		strings.Join([]string{hex1, hex3, hex4, hex2}, ""),
+		strings.Join([]string{hex1, hex4, hex2, hex3}, ""),
+		strings.Join([]string{hex1, hex4, hex3, hex2}, ""),
+		strings.Join([]string{hex2, hex1, hex3, hex4}, ""),
+		strings.Join([]string{hex2, hex1, hex4, hex3}, ""),
+		strings.Join([]string{hex2, hex3, hex1, hex4}, ""),
+		strings.Join([]string{hex2, hex3, hex4, hex1}, ""),
+		strings.Join([]string{hex2, hex4, hex3, hex2}, ""),
+		strings.Join([]string{hex2, hex4, hex2, hex3}, ""),
+		strings.Join([]string{hex3, hex1, hex2, hex4}, ""),
+		strings.Join([]string{hex3, hex1, hex4, hex2}, ""),
+		strings.Join([]string{hex3, hex2, hex1, hex4}, ""),
+		strings.Join([]string{hex3, hex2, hex4, hex1}, ""),
+		strings.Join([]string{hex3, hex4, hex1, hex2}, ""),
+		strings.Join([]string{hex3, hex4, hex2, hex1}, ""),
+		strings.Join([]string{hex4, hex1, hex2, hex3}, ""),
+		strings.Join([]string{hex4, hex1, hex3, hex2}, ""),
+	}
 }
 
 func write(colls []*mgo.Collection, done chan<- bool) {
@@ -51,28 +90,29 @@ func write(colls []*mgo.Collection, done chan<- bool) {
 			break
 		}
 
+		hexes := generateRandomHexes()
 		err := colls[t%uint64(*dbCount)].Insert(bson.M{
 			"_id":   uuid.New(),
-			"key0":  generateSecureRandomHex(128),
-			"key1":  generateSecureRandomHex(128),
-			"key2":  generateSecureRandomHex(128),
-			"key3":  generateSecureRandomHex(128),
-			"key4":  generateSecureRandomHex(128),
-			"key5":  generateSecureRandomHex(128),
-			"key6":  generateSecureRandomHex(128),
-			"key7":  generateSecureRandomHex(128),
-			"key8":  generateSecureRandomHex(128),
-			"key9":  generateSecureRandomHex(128),
-			"key10": generateSecureRandomHex(128),
-			"key11": generateSecureRandomHex(128),
-			"key12": generateSecureRandomHex(128),
-			"key13": generateSecureRandomHex(128),
-			"key14": generateSecureRandomHex(128),
-			"key15": generateSecureRandomHex(128),
-			"key16": generateSecureRandomHex(128),
-			"key17": generateSecureRandomHex(128),
-			"key18": generateSecureRandomHex(128),
-			"key19": generateSecureRandomHex(128),
+			"key0":  hexes[0],
+			"key1":  hexes[1],
+			"key2":  hexes[2],
+			"key3":  hexes[3],
+			"key4":  hexes[4],
+			"key5":  hexes[5],
+			"key6":  hexes[6],
+			"key7":  hexes[7],
+			"key8":  hexes[8],
+			"key9":  hexes[9],
+			"key10": hexes[10],
+			"key11": hexes[11],
+			"key12": hexes[12],
+			"key13": hexes[13],
+			"key14": hexes[14],
+			"key15": hexes[15],
+			"key16": hexes[16],
+			"key17": hexes[17],
+			"key18": hexes[18],
+			"key19": hexes[19],
 		})
 		if err != nil {
 			log.Println(err)
@@ -179,6 +219,7 @@ func main() {
 		}
 		session.SetSyncTimeout(10 * time.Minute)
 		session.SetSocketTimeout(10 * time.Minute)
+		session.SetMode(mgo.Eventual, true)
 		defer session.Close()
 		colls := make([]*mgo.Collection, *dbCount)
 		for j := 0; j < *dbCount; j++ {
