@@ -1,9 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"crypto/md5"
-	"encoding/binary"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -15,26 +12,35 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
+	murmur3 "github.com/spaolacci/murmur3"
 	mgo "gopkg.in/mgo.v2"
 	bson "gopkg.in/mgo.v2/bson"
 )
 
-func generateRandomMd5() []byte {
-	buf := new(bytes.Buffer)
-	err := binary.Write(buf, binary.LittleEndian, time.Now().UnixNano())
-	if err != nil {
-		panic(err)
-	}
-	array := md5.Sum(buf.Bytes())
-	return array[:]
+func generateMurmur3() []byte {
+	var bytesArray [16]byte
+
+	lpointer := unsafe.Pointer(&bytesArray[0])
+	hpointer := unsafe.Pointer(&bytesArray[8])
+	*(*int64)(lpointer) = time.Now().UnixNano()
+
+	hasher := murmur3.New128()
+	hasher.Write(bytesArray[0:8])
+	r1, r2 := hasher.Sum128()
+
+	*(*uint64)(lpointer) = r1
+	*(*uint64)(hpointer) = r2
+
+	return bytesArray[:]
 }
 
 func generateRandomHexes() [20]string {
-	var bytes1 []byte = generateRandomMd5()
-	var bytes2 []byte = generateRandomMd5()
-	var bytes3 []byte = generateRandomMd5()
-	var bytes4 []byte = generateRandomMd5()
+	var bytes1 []byte = generateMurmur3()
+	var bytes2 []byte = generateMurmur3()
+	var bytes3 []byte = generateMurmur3()
+	var bytes4 []byte = generateMurmur3()
 	var hex1 string = hex.EncodeToString(bytes1)
 	var hex2 string = hex.EncodeToString(bytes2)
 	var hex3 string = hex.EncodeToString(bytes3)
