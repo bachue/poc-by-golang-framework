@@ -30,7 +30,7 @@ var (
 	sampleCount     = flag.Uint64("qs", 2000, "number of samples")
 	frequency       = flag.Uint64("frequency", 100000, "benchmark frequency")
 	verbose         = flag.Bool("verbose", false, "verbose")
-	debug           = flag.Bool("debug", false, "verbose")
+	debug           = flag.Bool("debug", false, "debug")
 	totalWrite      = uint64(0)
 	totalQuery      = uint64(0)
 	last            time.Time
