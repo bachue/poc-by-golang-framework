@@ -45,7 +45,9 @@ func (s *Server) Root(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
-	log.Println(r.Method, r.ContentLength, r.URL.Path, time.Since(start).Seconds()*1000, "ms")
+	if s.verbose {
+		log.Println(r.Method, r.ContentLength, r.URL.Path, time.Since(start).Seconds()*1000, "ms")
+	}
 }
 
 func (s *Server) find(w http.ResponseWriter, r *http.Request) {
@@ -70,14 +72,26 @@ func (s *Server) find(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	n, err := s.getCollection().Find(query).Count()
+	var results []map[string]string
+	err = s.getCollection().Find(query).Limit(1).All(&results)
 	if err != nil {
-		log.Println("Find from db failed", err)
+		log.Println("Find from db Failed", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	if n > 0 {
+	if len(results) > 0 {
+		respBody, err := json.Marshal(results[0])
+		if err != nil {
+			log.Println("Marshal JSON Error", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
+		w.Header().Add("Content-Type", "application/json")
+		_, err = w.Write(respBody)
+		if err != nil {
+			log.Println("Write Response Error", err)
+		}
 	} else {
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -113,7 +127,7 @@ func (s *Server) insert(w http.ResponseWriter, r *http.Request) {
 
 	err = s.getCollection().Insert(doc)
 	if err != nil {
-		log.Println("Insert to db failed", err)
+		log.Println("Insert to db Failed", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
