@@ -241,6 +241,7 @@ func main() {
 
 	last = time.Now()
 	if *writeCount > 0 {
+		ensureIndexes(collsList[0][0])
 		for i := 0; i < *NumberGoroutine; i++ {
 			go write(collsList[i], done[i])
 		}
@@ -252,7 +253,6 @@ func main() {
 	if *queryCount > 0 {
 		samples = make([]map[string]string, 0, *sampleCount)
 		readSamples(collsList[0][0])
-		ensureIndexes(collsList[0][0])
 
 		last = time.Now()
 		for i := 0; i < *NumberGoroutine; i++ {
