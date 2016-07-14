@@ -40,6 +40,8 @@ func (s *Server) Root(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) find(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
 	if len(r.Header["Content-Type"]) <= 0 || !strings.Contains(r.Header["Content-Type"][0], "json") {
 		log.Printf("Content-Type must be JSON but %d\n", r.Header["Content-Type"])
 		w.WriteHeader(http.StatusBadRequest)
@@ -52,6 +54,7 @@ func (s *Server) find(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	r.Body.Close()
 
 	var query map[string]string
 	err = json.Unmarshal(body, &query)
@@ -87,6 +90,8 @@ func (s *Server) find(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) insert(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
 	if len(r.Header["Content-Type"]) <= 0 || !strings.Contains(r.Header["Content-Type"][0], "json") {
 		log.Printf("Content-Type must be JSON but %d\n", r.Header["Content-Type"])
 		w.WriteHeader(http.StatusBadRequest)
@@ -99,6 +104,7 @@ func (s *Server) insert(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	r.Body.Close()
 
 	var doc map[string]string
 	err = json.Unmarshal(body, &doc)

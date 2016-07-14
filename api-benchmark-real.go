@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"flag"
+	"io"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
@@ -143,6 +145,7 @@ func write(client *http.Client, done chan<- bool) {
 			log.Println(err)
 			continue
 		}
+		resp.Body.Close()
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			log.Println("POST Error", resp.StatusCode)
@@ -252,6 +255,8 @@ func query(client *http.Client, done chan<- bool) {
 			log.Println(err)
 			continue
 		}
+		_, _ = io.Copy(ioutil.Discard, resp.Body)
+		resp.Body.Close()
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			log.Println("GET Error", resp.StatusCode)
