@@ -16,6 +16,7 @@ import (
 	"time"
 	"unsafe"
 
+	uuid "github.com/pborman/uuid"
 	murmur3 "github.com/spaolacci/murmur3"
 	mgo "gopkg.in/mgo.v2"
 	bson "gopkg.in/mgo.v2/bson"
@@ -97,6 +98,8 @@ func write(client *http.Client, done chan<- bool) {
 		if t = atomic.AddUint64(&totalWrite, 1); count > 0 && t > count {
 			break
 		}
+
+		doc["_id"] = uuid.New()
 
 		hexes := generateRandomHexes()
 		doc["key0"] = hexes[0]

@@ -11,17 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/tuvistavie/securerandom"
 	mgo "gopkg.in/mgo.v2"
 )
-
-func RandomString(strlen int) string {
-	result, err := securerandom.Hex(strlen >> 1)
-	if err != nil {
-		panic(err)
-	}
-	return result
-}
 
 type Doc map[string]string
 
@@ -113,12 +104,6 @@ func (s *Server) insert(w http.ResponseWriter, r *http.Request) {
 	err = json.Unmarshal(body, &doc)
 	if err != nil {
 		log.Println("Parse Body Failed", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	doc["_id"], err = securerandom.Uuid()
-	if err != nil {
-		log.Println("Generate UUID Error", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
