@@ -28,7 +28,6 @@ var (
 	url                 = flag.String("url", "http://127.0.0.1", "url")
 	writeCount          = flag.Uint64("qw", 0, "number of write")
 	queryCount          = flag.Uint64("qr", 0, "number of query")
-	sampleCount         = flag.Uint64("qs", 2000, "number of samples")
 	frequency           = flag.Uint64("frequency", 100000, "benchmark frequency")
 	mongoHost           = flag.String("mongo", "127.0.0.1", "mongo host")
 	mongoDb             = flag.String("d", "test", "mongo db")
@@ -179,7 +178,7 @@ func getQueryBody() Doc {
 	hex2 := string(buf[32:64])
 	hex3 := string(buf[64:96])
 	hex4 := string(buf[96:128])
-	keyCount := rand.Int31n(5)
+	keyCount := rand.Int31n(5) + 1
 	for i := int32(0); i < keyCount; i++ {
 		keyNum := rand.Int31n(20)
 		switch keyNum {
@@ -291,12 +290,12 @@ func main() {
 	}
 	defer sampleFile.Close()
 
-	transport := &http.Transport{
+	transport := http.Transport{
 		Proxy:               nil,
 		Dial:                (&net.Dialer{Timeout: 30 * time.Minute, KeepAlive: 30 * time.Minute}).Dial,
 		MaxIdleConnsPerHost: 256,
 	}
-	client := http.Client{Transport: transport, Timeout: time.Duration(1 * time.Hour)}
+	client := http.Client{Transport: &transport, Timeout: time.Duration(1 * time.Hour)}
 
 	session, err = mgo.DialWithTimeout(*mongoHost, 1*time.Minute)
 	if err != nil {

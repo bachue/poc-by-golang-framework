@@ -28,9 +28,9 @@ type Sample map[string]string
 
 func writer(source <-chan string, done chan<- bool) {
 	defer close(done)
-	sampleFile, err := os.OpenFile(*samplePath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0)
+	sampleFile, err := os.OpenFile(*samplePath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 	defer sampleFile.Close()
 	for key := range source {
@@ -51,7 +51,7 @@ func main() {
 
 	session, err := mgo.DialWithTimeout(*mongoUrl, 1*time.Minute)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 	defer session.Close()
 	session.SetSyncTimeout(30 * time.Minute)
@@ -79,7 +79,7 @@ func main() {
 		}
 	}
 	if err := iter.Close(); err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 	close(docInputChannel)
 	<-writerDone
