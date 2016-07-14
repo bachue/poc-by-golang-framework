@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -18,24 +19,27 @@ import (
 
 	uuid "github.com/pborman/uuid"
 	murmur3 "github.com/spaolacci/murmur3"
+	mmap "golang.org/x/exp/mmap"
 	mgo "gopkg.in/mgo.v2"
-	bson "gopkg.in/mgo.v2/bson"
 )
 
 var (
-	NumberGoroutine = flag.Int("n", 1, "number of goruntine")
-	url             = flag.String("url", "http://127.0.0.1", "url")
-	writeCount      = flag.Uint64("qw", 0, "number of write")
-	queryCount      = flag.Uint64("qr", 0, "number of query")
-	sampleCount     = flag.Uint64("qs", 2000, "number of samples")
-	frequency       = flag.Uint64("frequency", 100000, "benchmark frequency")
-	mongoHost       = flag.String("mongo", "127.0.0.1", "mongo host")
-	mongoDb         = flag.String("d", "test", "mongo db")
-	mongoColl       = flag.String("c", "test", "mongo coll")
-	totalWrite      = uint64(0)
-	totalQuery      = uint64(0)
-	last            time.Time
-	samples         []map[string]string
+	NumberGoroutine     = flag.Int("n", 1, "number of goruntine")
+	url                 = flag.String("url", "http://127.0.0.1", "url")
+	writeCount          = flag.Uint64("qw", 0, "number of write")
+	queryCount          = flag.Uint64("qr", 0, "number of query")
+	sampleCount         = flag.Uint64("qs", 2000, "number of samples")
+	frequency           = flag.Uint64("frequency", 100000, "benchmark frequency")
+	mongoHost           = flag.String("mongo", "127.0.0.1", "mongo host")
+	mongoDb             = flag.String("d", "test", "mongo db")
+	mongoColl           = flag.String("c", "test", "mongo coll")
+	samplePath          = flag.String("sample-path", "samplefile.data", "Record all generated sample")
+	sampleFile          *os.File
+	totalWrite          = uint64(0)
+	totalQuery          = uint64(0)
+	last                time.Time
+	sampleMemoryFile    *mmap.ReaderAt
+	sampleMemoryFileLen int
 )
 
 type Doc map[string]string
@@ -125,10 +129,10 @@ func write(client *http.Client, done chan<- bool) {
 
 		body, err := json.Marshal(&doc)
 		if err != nil {
-			panic(err)
+			log.Fatal(err)
 		}
 
-		req, err := http.NewRequest("POST", *url+"/", bytes.NewReader(body))
+		req, err := http.NewRequest("POST", *url, bytes.NewReader(body))
 		if err != nil {
 			log.Println(err)
 			continue
@@ -146,12 +150,82 @@ func write(client *http.Client, done chan<- bool) {
 			continue
 		}
 
+		sampleFile.WriteString(hexes[0])
+
 		if t%(*frequency) == 0 {
 			log.Println("POST", t, float64(*frequency)/time.Since(last).Seconds())
 			last = time.Now()
 		}
 	}
 	done <- true
+}
+
+func getQueryBody() Doc {
+	doc := Doc{}
+	buf := make([]byte, 128)
+	total := int32(sampleMemoryFileLen >> 7)
+	if total == 0 {
+		log.Fatalf("No data in %s to be read", *samplePath)
+	}
+	randPos := rand.Int31n(total)
+	readLen, err := sampleMemoryFile.ReadAt(buf, int64(randPos)<<7)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if readLen != 128 {
+		log.Fatalf("Expect to read 128 bytes, but only %d bytes\n", readLen)
+	}
+	hex1 := string(buf[0:32])
+	hex2 := string(buf[32:64])
+	hex3 := string(buf[64:96])
+	hex4 := string(buf[96:128])
+	keyCount := rand.Int31n(5)
+	for i := int32(0); i < keyCount; i++ {
+		keyNum := rand.Int31n(20)
+		switch keyNum {
+		case 0:
+			doc["key0"] = strings.Join([]string{hex1, hex2, hex3, hex4}, "")
+		case 1:
+			doc["key1"] = strings.Join([]string{hex1, hex2, hex4, hex3}, "")
+		case 2:
+			doc["key2"] = strings.Join([]string{hex1, hex3, hex2, hex4}, "")
+		case 3:
+			doc["key3"] = strings.Join([]string{hex1, hex3, hex4, hex2}, "")
+		case 4:
+			doc["key4"] = strings.Join([]string{hex1, hex4, hex2, hex3}, "")
+		case 5:
+			doc["key5"] = strings.Join([]string{hex1, hex4, hex3, hex2}, "")
+		case 6:
+			doc["key6"] = strings.Join([]string{hex2, hex1, hex3, hex4}, "")
+		case 7:
+			doc["key7"] = strings.Join([]string{hex2, hex1, hex4, hex3}, "")
+		case 8:
+			doc["key8"] = strings.Join([]string{hex2, hex3, hex1, hex4}, "")
+		case 9:
+			doc["key9"] = strings.Join([]string{hex2, hex3, hex4, hex1}, "")
+		case 10:
+			doc["key10"] = strings.Join([]string{hex2, hex4, hex3, hex2}, "")
+		case 11:
+			doc["key11"] = strings.Join([]string{hex2, hex4, hex2, hex3}, "")
+		case 12:
+			doc["key12"] = strings.Join([]string{hex3, hex1, hex2, hex4}, "")
+		case 13:
+			doc["key13"] = strings.Join([]string{hex3, hex1, hex4, hex2}, "")
+		case 14:
+			doc["key14"] = strings.Join([]string{hex3, hex2, hex1, hex4}, "")
+		case 15:
+			doc["key15"] = strings.Join([]string{hex3, hex2, hex4, hex1}, "")
+		case 16:
+			doc["key16"] = strings.Join([]string{hex3, hex4, hex1, hex2}, "")
+		case 17:
+			doc["key17"] = strings.Join([]string{hex3, hex4, hex2, hex1}, "")
+		case 18:
+			doc["key18"] = strings.Join([]string{hex4, hex1, hex2, hex3}, "")
+		case 19:
+			doc["key19"] = strings.Join([]string{hex4, hex1, hex3, hex2}, "")
+		}
+	}
+	return doc
 }
 
 func query(client *http.Client, done chan<- bool) {
@@ -162,13 +236,12 @@ func query(client *http.Client, done chan<- bool) {
 			break
 		}
 
-		sample := samples[rand.Intn(len(samples))]
-		body, err := json.Marshal(sample)
+		body, err := json.Marshal(getQueryBody())
 		if err != nil {
-			panic(err)
+			log.Fatal(err)
 		}
 
-		req, err := http.NewRequest("GET", *url+"/", bytes.NewReader(body))
+		req, err := http.NewRequest("GET", *url, bytes.NewReader(body))
 		if err != nil {
 			log.Println(err)
 			continue
@@ -194,55 +267,29 @@ func query(client *http.Client, done chan<- bool) {
 	done <- true
 }
 
-func readSamples(coll *mgo.Collection) {
-	var (
-		count   uint64
-		rest    uint64 = *sampleCount
-		results []map[string]string
-		sample  map[string]string
-		key     string
-	)
-	for {
-		if rest >= 2000 {
-			count = 2000
-		} else {
-			count = rest
-		}
-
-		aggregation := []bson.M{bson.M{"$sample": bson.M{"size": count}}}
-		err := coll.Pipe(aggregation).All(&results)
-		if err != nil {
-			panic(err)
-		}
-		for _, result := range results {
-			sample = make(map[string]string)
-			for j := 0; j < rand.Intn(5)+1; j++ {
-				key = "key" + strconv.Itoa(rand.Intn(20))
-				sample[key] = result[key]
-			}
-			samples = append(samples, sample)
-		}
-
-		if rest > 2000 {
-			rest -= 2000
-		} else {
-			break
-		}
-	}
-}
-
 func ensureIndexes(coll *mgo.Collection) {
 	for i := 0; i < 20; i++ {
 		err := coll.EnsureIndexKey("key" + strconv.Itoa(i))
 		if err != nil {
-			panic(err)
+			log.Fatal(err)
 		}
 	}
 }
 
 func main() {
+	var (
+		session *mgo.Session
+		err     error
+	)
+
 	flag.Parse()
 	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	sampleFile, err = os.OpenFile(*samplePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0600)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer sampleFile.Close()
 
 	transport := &http.Transport{
 		Proxy:               nil,
@@ -251,7 +298,7 @@ func main() {
 	}
 	client := http.Client{Transport: transport, Timeout: time.Duration(1 * time.Hour)}
 
-	session, err := mgo.DialWithTimeout(*mongoHost, 1*time.Minute)
+	session, err = mgo.DialWithTimeout(*mongoHost, 1*time.Minute)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -265,6 +312,7 @@ func main() {
 
 	last = time.Now()
 	if *writeCount > 0 {
+		ensureIndexes(coll)
 		for i := 0; i < *NumberGoroutine; i++ {
 			go write(&client, done[i])
 		}
@@ -274,8 +322,12 @@ func main() {
 	}
 
 	if *queryCount > 0 {
-		ensureIndexes(coll)
-		readSamples(coll)
+		sampleMemoryFile, err = mmap.Open(*samplePath)
+		defer sampleMemoryFile.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+		sampleMemoryFileLen = sampleMemoryFile.Len()
 
 		last = time.Now()
 		for i := 0; i < *NumberGoroutine; i++ {

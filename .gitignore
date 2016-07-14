@@ -22,5 +22,6 @@ _testmain.go
 *.exe
 *.test
 *.prof
+*.sample
 
 /poc-by-golang-framework
