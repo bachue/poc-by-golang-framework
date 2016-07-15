@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"encoding/hex"
 	"flag"
+	"fmt"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"os"
@@ -16,30 +19,28 @@ import (
 
 	"github.com/pborman/uuid"
 	murmur3 "github.com/spaolacci/murmur3"
-	mmap "golang.org/x/exp/mmap"
 	mgo "gopkg.in/mgo.v2"
 	bson "gopkg.in/mgo.v2/bson"
 )
 
 var (
-	NumberGoroutine     = flag.Int("n", 1, "number of goruntine")
-	host                = flag.String("h", "127.0.0.1", "host")
-	db                  = flag.String("d", "test", "db")
-	coll                = flag.String("c", "test", "coll")
-	dbCount             = flag.Int("dbs", 1, "db count")
-	writeCount          = flag.Uint64("qw", 0, "number of write")
-	queryCount          = flag.Uint64("qr", 0, "number of query")
-	frequency           = flag.Uint64("frequency", 100000, "benchmark frequency")
-	verbose             = flag.Bool("verbose", false, "verbose")
-	debug               = flag.Bool("debug", false, "debug")
-	samplePath          = flag.String("sample-path", "samplefile.data", "Record all generated sample")
-	sampleFile          *os.File
-	totalWrite          = uint64(0)
-	totalQuery          = uint64(0)
-	last                time.Time
-	collsList           [][]*mgo.Collection
-	sampleMemoryFile    *mmap.ReaderAt
-	sampleMemoryFileLen int
+	NumberGoroutine   = flag.Int("n", 1, "number of goruntine")
+	host              = flag.String("h", "127.0.0.1", "host")
+	db                = flag.String("d", "test", "db")
+	coll              = flag.String("c", "test", "coll")
+	dbCount           = flag.Int("dbs", 1, "db count")
+	writeCount        = flag.Uint64("qw", 0, "number of write")
+	queryCount        = flag.Uint64("qr", 0, "number of query")
+	frequency         = flag.Uint64("frequency", 100000, "benchmark frequency")
+	verbose           = flag.Bool("verbose", false, "verbose")
+	debug             = flag.Bool("debug", false, "debug")
+	samplePath        = flag.String("sample-path", "samplefile.data", "Record all generated sample")
+	sampleFile        *os.File
+	totalWrite        = uint64(0)
+	totalQuery        = uint64(0)
+	last              time.Time
+	collsList         [][]*mgo.Collection
+	sampleFileContent []byte
 )
 
 func generateMurmur3() []byte {
@@ -141,19 +142,12 @@ func write(colls []*mgo.Collection, wg *sync.WaitGroup) {
 
 func getQueryBody() map[string]string {
 	doc := make(map[string]string)
-	buf := make([]byte, 128)
-	total := int32(sampleMemoryFileLen >> 7)
+	total := int32(len(sampleFileContent) >> 7)
 	if total == 0 {
 		log.Fatalf("No data in %s to be read", *samplePath)
 	}
 	randPos := rand.Int31n(total)
-	readLen, err := sampleMemoryFile.ReadAt(buf, int64(randPos)<<7)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if readLen != 128 {
-		log.Fatalf("Expect to read 128 bytes, but only %d bytes\n", readLen)
-	}
+	buf := sampleFileContent[(int64(randPos) << 7):(int64(randPos)<<7 + 128)]
 	hex1 := string(buf[0:32])
 	hex2 := string(buf[32:64])
 	hex3 := string(buf[64:96])
@@ -291,12 +285,20 @@ func main() {
 	}
 
 	if *queryCount > 0 {
-		sampleMemoryFile, err = mmap.Open(*samplePath)
-		defer sampleMemoryFile.Close()
+		file, err := os.OpenFile(*samplePath, os.O_RDONLY, 0)
 		if err != nil {
 			log.Fatal(err)
 		}
-		sampleMemoryFileLen = sampleMemoryFile.Len()
+
+		sampleFileContent, err = ioutil.ReadAll(file)
+		file.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		reader := bufio.NewReader(os.Stdin)
+		fmt.Println("Press Enter to continue ...")
+		_, _ = reader.ReadString('\n')
 
 		wg.Add(*NumberGoroutine)
 
