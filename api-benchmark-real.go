@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -95,7 +96,7 @@ func generateRandomHexes() [20]string {
 	}
 }
 
-func write(client *http.Client, done chan<- bool) {
+func write(client *http.Client, wg *sync.WaitGroup) {
 	var t uint64
 	count := *writeCount
 	doc := Doc{}
@@ -159,7 +160,7 @@ func write(client *http.Client, done chan<- bool) {
 			last = time.Now()
 		}
 	}
-	done <- true
+	wg.Done()
 }
 
 func getQueryBody() Doc {
@@ -230,7 +231,7 @@ func getQueryBody() Doc {
 	return doc
 }
 
-func query(client *http.Client, done chan<- bool) {
+func query(client *http.Client, wg *sync.WaitGroup) {
 	var t uint64
 	count := *queryCount
 	for {
@@ -268,7 +269,7 @@ func query(client *http.Client, done chan<- bool) {
 			last = time.Now()
 		}
 	}
-	done <- true
+	wg.Done()
 }
 
 func ensureIndexes(coll *mgo.Collection) {
@@ -283,6 +284,7 @@ func ensureIndexes(coll *mgo.Collection) {
 func main() {
 	var (
 		session *mgo.Session
+		wg      sync.WaitGroup
 		err     error
 	)
 
@@ -309,20 +311,16 @@ func main() {
 	defer session.Close()
 	coll := session.DB(*mongoDb).C(*mongoColl)
 
-	done := make([]chan bool, *NumberGoroutine)
-	for i := 0; i < *NumberGoroutine; i++ {
-		done[i] = make(chan bool, 1)
-	}
-
-	last = time.Now()
 	if *writeCount > 0 {
 		ensureIndexes(coll)
+
+		wg.Add(*NumberGoroutine)
+
+		last = time.Now()
 		for i := 0; i < *NumberGoroutine; i++ {
-			go write(&client, done[i])
+			go write(&client, &wg)
 		}
-		for i := 0; i < *NumberGoroutine; i++ {
-			<-done[i]
-		}
+		wg.Wait()
 	}
 
 	if *queryCount > 0 {
@@ -333,16 +331,12 @@ func main() {
 		}
 		sampleMemoryFileLen = sampleMemoryFile.Len()
 
+		wg.Add(*NumberGoroutine)
+
 		last = time.Now()
 		for i := 0; i < *NumberGoroutine; i++ {
-			go query(&client, done[i])
+			go query(&client, &wg)
 		}
-		for i := 0; i < *NumberGoroutine; i++ {
-			<-done[i]
-		}
-	}
-
-	for _, channel := range done {
-		close(channel)
+		wg.Wait()
 	}
 }
