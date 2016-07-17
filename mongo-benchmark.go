@@ -203,19 +203,22 @@ func getQueryBody() map[string]string {
 
 func query(colls []*mgo.Collection, wg *sync.WaitGroup) {
 	var t uint64
+	var results []map[string]string
+
 	count := *queryCount
 	for {
 		if t = atomic.AddUint64(&totalQuery, 1); count > 0 && t > count {
 			break
 		}
 
-		n, err := colls[t%uint64(*dbCount)].Find(getQueryBody()).Count()
+		query := getQueryBody()
+		err := colls[t%uint64(*dbCount)].Find(query).All(&results)
 		if err != nil {
 			log.Println(err)
 			continue
 		}
-		if n != 1 {
-			log.Printf("Expected the query will got 1 record, but got %d\n", n)
+		if len(results) != 1 {
+			log.Printf("Expected the query will got 1 record, but got %d\nQuery Condition: %v\n", len(results), query)
 		}
 		if t%(*frequency) == 0 {
 			log.Println("QUERY", t, float64(*frequency)/time.Since(last).Seconds())
